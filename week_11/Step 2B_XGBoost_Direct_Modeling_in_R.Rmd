@@ -1,0 +1,110 @@
+---
+Title: "Week_11_Assignment"
+Step: "Step 2B:- XGBoost Direct Modeling in R (without caret)"
+author: "Shreya Kurani"
+date: "2025-04-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls()) 
+```
+
+```{r}
+#install and load libraries
+
+if (!require("xgboost")) install.packages("xgboost")
+library(xgboost)
+
+```
+
+```{r}
+#function command to load the dataset
+
+load_dataset <- function(size) {
+  filelocation <- paste0("../data/synthetic_data_", size, ".rds")
+  df <- readRDS(filelocation)
+  return(df)
+}
+
+```
+
+```{r}
+# Function command to train XGBOOST model directly
+
+train_xgboost_direct <- function(df, size_label) {
+# Separate the predictors and the outcome
+  X <- as.matrix(df[, setdiff(names(df), "outcome")])
+  y <- as.numeric(df$outcome)
+  
+  # Convert to DMatrix format (optimized for xgboost)
+  dtrain <- xgb.DMatrix(data = X, label = y)
+  
+  # Set XGBoost parameters
+  param <- list(
+    booster = "gbtree",
+    objective = "binary:logistic",
+    eval_metric = "error"
+  )
+  
+  # Start timing
+  start_time <- Sys.time()
+  
+  # Train XGBoost model (simple training)
+  model <- xgboost(
+    params = param,
+    data = dtrain,
+    nrounds = 10,  # small number of rounds for fast training
+    verbose = 0
+  )
+  
+  # End timing
+  end_time <- Sys.time()
+  
+  # Predict on training data itself
+  preds <- predict(model, dtrain)
+  preds_binary <- ifelse(preds > 0.5, 1, 0)
+  
+  # Calculate training accuracy
+  accuracy <- mean(preds_binary == y)
+  time_taken <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  
+  cat("Dataset Size:", size_label, "\n")
+  cat("Training Set Accuracy:", round(accuracy, 4), "\n")
+  cat("Time Taken:", round(time_taken, 2), "seconds\n\n")
+  
+  return(list(accuracy = accuracy, time = time_taken))
+}
+
+```
+
+```{r}
+
+#list of all the dataset sizes
+
+sizes <- c("100", "1000", "10000", "100000", "1000000", "10000000")
+
+```
+
+```{r}
+
+#Train the model and record the results
+results <- list()
+
+for (sz in sizes) {
+  df <- load_dataset(sz)
+  res <- train_xgboost_direct(df, size_label = sz)
+  
+  results[[length(results) + 1]] <- list(
+    Method_Used = "XGBoost (Direct R, simple CV)",
+    Dataset_Size = sz,
+    Testing_Set_Predictive_Performance = round(res$accuracy, 4),
+    Time_Taken_seconds = round(res$time, 2)
+  )
+}
+
+```

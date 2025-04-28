@@ -1,0 +1,110 @@
+---
+title: "Week_11_Assignment"
+Step: "Step 2C:- XGBoost Caret in R"
+author: "Shreya Kurani"
+date: "2025-04-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls()) 
+```
+
+```{r}
+#install and load necessary libraries 
+if (!require("caret")) install.packages("caret")
+if (!require("xgboost")) install.packages("xgboost")
+library(caret)
+library(xgboost)
+```
+
+```{r}
+# load the data
+
+load_dataset <- function(size) {
+  filelocation <- paste0("../data/synthetic_data_", size, ".rds")
+  df <- readRDS(filelocation)
+  return(df)
+}
+```
+
+```{r}
+# train XGBoost using caret function
+train_xgboost_caret <- function(df, size_label) {
+  
+  # Separating the predictors and the outcome
+  X <- df[, setdiff(names(df), "outcome")]
+  y <- as.factor(df$outcome)  # caret expects outcome as factor
+  
+  # Creating the caret training control (5-fold CV)
+  ctrl <- trainControl(
+    method = "cv",
+    number = 5,
+    verboseIter = FALSE
+  )
+  
+  # Here we set the start time
+  start_time <- Sys.time()
+  
+  # Train XGBoost model using caret
+  model <- train(
+    x = X,
+    y = y,
+    method = "xgbTree",
+    trControl = ctrl,
+    tuneLength = 1,  # simple tuning, no extensive grid search
+    verbosity = 0
+  )
+  
+  # And now we set the end time
+  end_time <- Sys.time()
+  
+  # Get top notch cross-validation Accuracy
+  accuracy <- max(model$results$Accuracy)
+  time_taken <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  
+  cat("Dataset Size:", size_label, "\n")
+  cat("Cross-Validation Accuracy:", round(accuracy, 4), "\n")
+  cat("Time Taken:", round(time_taken, 2), "seconds\n\n")
+  
+  return(list(accuracy = accuracy, time = time_taken))
+}
+
+```
+
+```{r}
+# datasets sizes to be processed 
+sizes <- c("100", "1000", "10000", "100000", "1000000")
+
+```
+
+```{r}
+
+#Here we train and record the results
+results <- list()
+
+for (sz in sizes) {
+  df <- load_dataset(sz)
+  res <- train_xgboost_caret(df, size_label = sz)
+  
+  results[[length(results) + 1]] <- list(
+    Method_Used = "XGBoost (R caret, 5-Fold CV)",
+    Dataset_Size = sz,
+    Testing_Set_Predictive_Performance = round(res$accuracy, 4),
+    Time_Taken_seconds = round(res$time, 2)
+  )
+}
+
+```
+```{r}
+#print the final results
+
+results_df <- do.call(rbind, lapply(results, as.data.frame))
+print(results_df)
+
+```
+

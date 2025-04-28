@@ -1,0 +1,85 @@
+---
+Title: Week_11_Assignment
+Step: "Step 1:- Generating the data in R"
+author: "Shreya Kurani"
+date: "2025-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls()) 
+```
+
+```{r}
+#load libraries
+library(mlbench)
+library(purrr)
+```
+
+```{r}
+#load the dataset
+data("PimaIndiansDiabetes2")
+ds <- as.data.frame(na.omit(PimaIndiansDiabetes2))
+```
+
+```{r}
+## fit a logistic regression model to obtain a parametric equation
+
+logmodel <- glm(diabetes ~ .,
+                data = ds,
+                family = "binomial")
+summary(logmodel)
+```
+```{r}
+cfs <- coefficients(logmodel) ## extract the coefficients
+prednames <- variable.names(ds)[-9] ## fetch the names of predictors in a vector
+prednames
+```
+```{r}
+
+#here we define the function to generate synthetic data 
+gen_syn_data <- function(sz) {
+  dfdata <- map_dfc(prednames, function(nm) {
+    eval(parse(text = paste0("sample(ds$", nm, ", size = ", sz, ", replace = TRUE)")))
+  })
+  names(dfdata) <- prednames
+  
+# 2. Compute the predicted logit values
+  pvec <- map(1:length(prednames), function(pnum) {
+    cfs[pnum + 1] * eval(parse(text = paste0("dfdata$", prednames[pnum])))
+  }) %>%
+    reduce(`+`) + cfs[1]
+  
+  # 3. Creating the binary outcome
+  dfdata$outcome <- ifelse(1 / (1 + exp(-pvec)) > 0.5, 1, 0)
+  
+  # 4. Now we return the full data
+  return(dfdata)
+} 
+
+```
+
+```{r}
+ # defining the data sizes 
+
+sizes <- c(100, 1000, 10000, 100000, 1000000, 10000000)
+
+```
+
+```{r}
+#now we generate and save each datasets separately 
+
+for (sz in sizes) {
+  df <- gen_syn_data(sz)
+ saveRDS(df, file = paste0("../data/synthetic_data_", format(sz, scientific = FALSE), ".rds"))
+}
+
+```
+
+
+
+
+
