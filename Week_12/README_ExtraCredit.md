@@ -27,4 +27,4 @@ For this assignment, I created FFNNs with 1 and 2 hidden layers using synthetic 
 I varied the size of the dataset and performed similar experiment against XGBoost.
 
 The notebook linked below has a full implementation.
-https://github.com/shreyakurani/Shreya_HDS_5230_07/blob/main/Week_12/Week12_DeepLearning_Comparison.ipynb
+(https://github.com/shreyakurani/Shreya_HDS_5230_07/blob/main/Week_12/Week12_DeepLearning_Comparison_Extra_Credit.ipynb)
