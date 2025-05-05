@@ -23,8 +23,8 @@ I used my new deep learning models and compared the results with the XGBoost res
 
 ## Files in This Folder:- 
 
-Week12_DeepLearning_vs_XGBoost_Report_SaumilKurani.docx: My written report with analysis and conclusions
-Week12_Neural_Network_Modeling.ipynb: The Jupyter notebook with all my code and outputs
+Week12_DeepLearning_vs_XGBoost_Report: My written report with analysis and conclusions
+Week12_DeepLearning_Comparison.ipynb: The Jupyter notebook with all my code and outputs
 synthetic_data_1000.rds: The small dataset (1k rows)
 synthetic_data_10000.rds: The medium dataset (10k rows)
 synthetic_data_100000.rds: The large dataset (100k rows)
