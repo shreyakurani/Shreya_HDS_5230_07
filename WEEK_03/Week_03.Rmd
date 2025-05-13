@@ -1,0 +1,145 @@
+---
+title: "Assignment_Week_03"
+author: "Shreya Kurani"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("readxl")
+#install.packages("geosphere")
+#install.packages("microbenchmark")
+```
+
+```{r}
+#Load the libraries
+library(readxl)
+library(microbenchmark)
+```
+
+```{r}
+# Load cleaned dataset
+clinic_data <- read.csv("clinic.csv")
+head(clinic_data)
+
+```
+```{r}
+# Convert lat/lon columns to numeric
+# Ensure coordinates are numeric
+clinic_data$latitude <- as.numeric(clinic_data$locLat)
+clinic_data$longitude <- as.numeric(clinic_data$locLong)
+
+summary(clinic_data$latitude)
+summary(clinic_data$longitude)
+
+```
+```{r}
+# Drop rows with missing latitude or longitude
+clinic_data <- clinic_data[!is.na(clinic_data$latitude) & !is.na(clinic_data$longitude), ]
+
+# Pull out just the coordinates
+coord_subset <- clinic_data[, c("latitude", "longitude")]
+
+# Function to convert degrees to radians
+deg_to_rad <- function(deg) {
+  return(deg * pi / 180)
+}
+```
+
+```{r}
+
+# Method 1: Manual distance function using nested sapply
+compute_haversine <- function(lat1, lon1, lat2, lon2) {
+  radius <- 6371  # Earth's radius in km
+  lat1 <- deg_to_rad(lat1)
+  lon1 <- deg_to_rad(lon1)
+  lat2 <- deg_to_rad(lat2)
+  lon2 <- deg_to_rad(lon2)
+  
+  delta_lat <- lat2 - lat1
+  delta_lon <- lon2 - lon1
+  
+  a <- sin(delta_lat / 2)^2 + cos(lat1) * cos(lat2) * sin(delta_lon / 2)^2
+  c <- 2 * asin(sqrt(a))
+  
+  return(radius * c)
+}
+
+# Distance matrix: all-pairs from one reference
+manual_distances <- sapply(1:nrow(coord_subset), function(i) {
+  sapply(1:nrow(coord_subset), function(j) {
+    compute_haversine(coord_subset[i, 1], coord_subset[i, 2], coord_subset[j, 1], coord_subset[j, 2])
+  })
+})
+
+# Benchmark the nested approach
+microbenchmark::microbenchmark(
+  sapply(1:nrow(coord_subset), function(i) {
+    sapply(1:nrow(coord_subset), function(j) {
+      compute_haversine(coord_subset[i, 1], coord_subset[i, 2], coord_subset[j, 1], coord_subset[j, 2])
+    })
+  }),
+  times = 10
+)
+```
+
+```{r}
+# Method 2: Apply on each row using reference point
+ref_lat <- clinic_data$latitude[1]
+ref_lon <- clinic_data$longitude[1]
+
+# Compute distances from the reference location
+distances_apply <- apply(clinic_data[, c("latitude", "longitude")], 1, function(row) {
+  compute_haversine(ref_lat, ref_lon, row[1], row[2])
+})
+
+apply_benchmark <- microbenchmark(
+  apply(clinic_data[, c("latitude", "longitude")], 1, function(row) {
+    compute_haversine(ref_lat, ref_lon, row[1], row[2])
+  }),
+  times = 100
+)
+
+```
+
+```{r}
+
+# Method 3: Fully vectorized matrix version
+radians_matrix <- matrix(c(clinic_data$latitude, clinic_data$longitude) * pi / 180, ncol = 2)
+
+ref_lat_rad <- clinic_data$latitude[1] * pi / 180
+ref_lon_rad <- clinic_data$longitude[1] * pi / 180
+
+dlat <- radians_matrix[, 1] - ref_lat_rad
+dlon <- radians_matrix[, 2] - ref_lon_rad
+
+a <- sin(dlat / 2)^2 + cos(ref_lat_rad) * cos(radians_matrix[, 1]) * sin(dlon / 2)^2
+c <- 2 * asin(sqrt(a))
+
+clinic_data$distance_km <- 6371 * c
+
+# Benchmarking the matrix version
+matrix_benchmark <- microbenchmark(
+  {
+    radians_matrix <- matrix(c(clinic_data$latitude, clinic_data$longitude) * pi / 180, ncol = 2)
+    ref_lat <- clinic_data$latitude[1] * pi / 180
+    ref_lon <- clinic_data$longitude[1] * pi / 180
+    dlat <- radians_matrix[, 1] - ref_lat
+    dlon <- radians_matrix[, 2] - ref_lon
+    a <- sin(dlat / 2)^2 + cos(ref_lat) * cos(radians_matrix[, 1]) * sin(dlon / 2)^2
+    c <- 2 * asin(sqrt(a))
+    output_distances <- 6371 * c
+  },
+  times = 100
+)
+
+# Return all benchmarks
+list(
+  apply_method = apply_benchmark,
+  vectorized_method = matrix_benchmark
+)
+```
+
