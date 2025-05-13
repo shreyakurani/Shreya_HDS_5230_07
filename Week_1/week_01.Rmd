@@ -1,0 +1,231 @@
+---
+title: "Assignment_1"
+author: "Shreya Kurani"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+# Installing and including required libraries
+if(!library("data.table", logical.return=TRUE)){
+  install.packages("data.table")
+}
+library(data.table)
+if(!library("Hmisc", logical.return = TRUE)){
+  install.packages("Hmisc")
+}
+library(Hmisc)
+if(!library("testthat", logical.return=TRUE)){
+  install.packages("testthat")
+}
+library(testthat)
+```
+
+
+```{r}
+# Reading all required datasets as data.tables
+getwd() # Checking working directory
+# Set working directory to your healthcare data folder
+setwd("C:/Users/kuran/OneDrive/Desktop/healthcare-data/healthcare-data")
+visits_data <- fread("OutpatientVisit.csv")
+patients_data <- fread("Patient.csv")
+clinics_data <- fread("Clinic.csv")
+death_data <- fread("Mortality.csv")
+diagnosis_codes <- fread("ICDCodes.csv")
+disease_categories <- fread("DiseaseMap.csv")
+```
+
+```{r}
+test_that("Outpatient loaded", { expect_equal(visits_data[,.N],174690)})
+test_that("Patient loaded", { expect_equal(patients_data[,.N],20000)})
+test_that("Clinic loaded", { expect_equal(clinics_data[,length(ClinicCode)], 60)})
+test_that("Clinic loaded", { expect_equal(clinics_data[,.N], 60)})
+test_that("Mortality loaded", { expect_equal(death_data[,.N],7094)})
+test_that("ICD10 loaded", { expect_equal(diagnosis_codes[,.N],3419)})
+test_that("Disease loaded", { expect_equal(disease_categories[,.N],3419)})
+```
+
+
+
+```{r}
+str(death_data)
+setkey(death_data, PatientID)
+```
+
+We have death dates in the data on mortality, but we need gender information from the patient data set:- 
+
+```{r}
+str(patients_data)
+```
+
+Now we’ll merge these datasets in order to analyze mortality by gender:
+
+```{r}
+patient_subset <- patients_data[, .(PatientID, Gender)] # Creating a subset with only needed columns
+setkey(patient_subset, PatientID) # Setting PatientID as key for efficient joining
+mortality_by_gender <- merge(patient_subset, death_data, all=TRUE) # Full join to include all patients
+```
+
+Let us look at the distribution of our pooled data:
+
+```{r}
+Hmisc::describe(mortality_by_gender)
+```
+
+Now we can determine mortality rates by gender:
+
+```{r}
+gender_mortality <- mortality_by_gender[, .(mortality_percentage = (sum(!is.na(DateOfDeath))/.N)*100), by=Gender]
+female_mortality_rate <- gender_mortality[Gender=="female", mortality_percentage]
+male_mortality_rate <- gender_mortality[Gender=="male", mortality_percentage]
+```
+
+## QUES 1 CHECKING THE TEST
+```{r}
+higher_male_mortality = female_mortality_rate < male_mortality_rate 
+test_that("men more likely to die", { expect_equal(higher_male_mortality, TRUE)})
+```
+
+
+
+
+```{r}
+setkey(visits_data, PatientID) # Setting key for outpatient visit data
+visit_diagnoses <- visits_data[, .(PatientID, VisitDate, ICD10_1, ICD10_2, ICD10_3)] # Creating subset with relevant columns
+
+# Converting data from wide to long format to handle multiple ICD columns
+visit_diagnoses_long <- melt(visit_diagnoses, 
+                            id.vars=c('PatientID','VisitDate'), 
+                            variable.name='DiagnosisField', 
+                            value.name='ICD10Code')
+
+# Display the transformed data
+visit_diagnoses_long
+```
+
+```{r}
+# Examining the distribution of the transformed data
+Hmisc::describe(visit_diagnoses_long)
+```
+
+```{r}
+setkey(disease_categories, ICD10) # Setting ICD10 as key for disease mapping
+setkey(visit_diagnoses_long, ICD10Code) # Setting ICD10Code as key for diagnosis data
+diagnosis_with_categories <- disease_categories[visit_diagnoses_long, nomatch=0] # Inner join
+diagnosis_with_categories # Display the joined data
+```
+
+```{r}
+setkey(diagnosis_with_categories, PatientID) # Setting PatientID as key for joining with patient data
+diagnosis_with_gender <- patient_subset[diagnosis_with_categories] # Joining with patient data
+diagnosis_with_gender # Display the result
+```
+
+Now we will calculate the prevalence of disease by gender:
+
+```{r}
+# Removing duplicates to count each patient-condition pair only once
+# Then calculating prevalence by gender for each condition
+disease_prevalence <- diagnosis_with_gender[
+  !duplicated(diagnosis_with_gender, by = c("PatientID", "Condition"))
+][
+  Gender=='male' | Gender == 'female', 
+  .N, 
+  by = .(Condition, Gender)
+][
+  , Percentage := (N / sum(N)) * 100, 
+  by = Condition
+]
+```
+
+```{r}
+# Creating a summary table with percentages for each gender and combined
+disease_summary <- dcast(disease_prevalence, Condition ~ Gender)[, Total:=female+male]
+```
+
+##QUES 2. CHECKING THE TESTING
+```{r}
+test_that("summaries populated", { expect_equal(disease_summary[,.N], 22)})
+```
+
+
+
+
+To calculate annual mortality rates, we first need to determine when each patient entered the risk pool (first visit) and when they exited due to death:
+
+```{r}
+# Finding the first visit date for each patient
+first_visits <- visits_data[, .(FirstVisitDate=min(VisitDate)), by=PatientID][!is.na(FirstVisitDate)]
+Hmisc::describe(first_visits) # Examining the data distribution
+```
+
+Now we'll join this with mortality data to incorporate death information:
+
+```{r}
+setkey(first_visits, PatientID) # Setting key as PatientID
+patient_tracking <- merge(first_visits, death_data, all.x=TRUE) # Left join to maintain all patients with visits
+
+# Adding year columns for easier analysis
+patient_years <- patient_tracking[, `:=`(
+  EntryYear = as.numeric(format(FirstVisitDate, "%Y")),
+  DeathYear = as.numeric(format(DateOfDeath, "%Y"))
+)][, .(PatientID, EntryYear, DeathYear)]
+```
+
+```{r}
+calculate_annual_mortality <- function(year) {
+  # This function calculates mortality rate for a specific year:
+  # (Deaths in year / Patients at risk during year) * 100
+  
+  deaths_in_year <- patient_years[DeathYear==year, .N]
+  
+  patients_at_risk <- patient_years[
+    # Patients who entered the study in this year or earlier
+    (EntryYear <= year) & 
+    # AND who either haven't died or died in this year or later
+    (is.na(DeathYear) | DeathYear >= year),
+    .N
+  ]
+  
+  return((deaths_in_year * 100) / patients_at_risk)
+}
+```
+
+```{r}
+# Calculating mortality rates for all years in the specified range
+study_years <- 2005:2018
+annual_mortality <- data.table(
+  Year = study_years, 
+  MortalityRate = sapply(study_years, calculate_annual_mortality)
+)
+annual_mortality
+```
+
+```{r}
+# Example: Mortality rate for 2014
+calculate_annual_mortality(2014)
+```
+**Q.1. Are men more likely to die than women in this group of patients? Assume people without a date of death in the mortality table are still alive.**
+
+**Answer1 : Yes. Combining gender data from the patients dataset with the mortality records we calculated death proportions with the help of the death_proportions_by_gender variable. According to the results, about 35.9% of the male patients died as compared to 35.1% of the female patients. This shows that men are slightly more likely to die than women in this patient population, a fact that was confirmed using grouped summaries on the merged data frame.**
+
+
+
+**2. Are there patterns in the disease groups across gender? For every patient with at least one outpatient visit, identify if they have been diagnosed with any of the 22 conditions listed in the diseaseMap table at any time point. You will need to consider all three ICD columns in the outpatientVisit file (not just one). Create a table with the rate of disease for each condition for men, women, and all.**
+
+
+**Answer2: With the visit_diagnoses_long and disease_prevalence variables, we examined all 22 disease conditions for gender. Our results, plotted in the disease_summary table, indicate different prevalence between males and females. This confirms separate gender-based disparities in health in the dataset and emphasizes how some conditions are more prevalent in one gender than the other through the patient population.**
+
+
+
+**3. Calculate the mortality rate for every year between 2005 and 2018. Is it generally increasing, or decreasing? Assume patients are only at risk of death as of their first visit (in the outpatient Visit file). Once they have died, they are no longer at risk in subsequent years.**
+
+**Answer3 : *From the calculate_annual_mortality() function applied to the visits and mortality datasets, we calculated yearly mortality rates, which are stored in the annual_mortality_df table. The trend is not straight line – for example, the mortality reached its highest point of 6.89% in 2006 and decreased to 1.77% in 2018. These variations indicate that there are various factors that affect mortality every year, and there is no clear trend of increasing or decreasing mortality over the 14 years.**
